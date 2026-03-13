@@ -12,8 +12,8 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
 
-const CALLER_NAME = process.env.CALLER_NAME || "David";
-const UNDERWRITER_NAME = process.env.UNDERWRITER_NAME || "Andy Holder";
+const CALLER_NAME = process.env.CALLER_NAME || "Jordan";
+const UNDERWRITER_NAME = process.env.UNDERWRITER_NAME || "Gabriel";
 const DEFAULT_STATE = process.env.DEFAULT_STATE || "Florida";
 const DEFAULT_TIMEZONE = process.env.CALENDLY_TIMEZONE || "America/New_York";
 
@@ -905,7 +905,7 @@ app.post("/voice", (req, res) => {
     <ConversationRelay
       url="wss://${host}/conversationrelay?leadId=${leadId}"
       ttsProvider="ElevenLabs"
-      voice="s3TPKV1kjDlVtZbl4Ksh-flash_v2_5-0.85_0.75_0.80"
+      voice="DXFkLCBUTmvXpp2QwZjA-flash_v2_5-0.85_0.75_0.80"
       language="en-US"
       ttsLanguage="en-US"
     />
