@@ -4,6 +4,13 @@ const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
 const OpenAI = require("openai");
+const twilio = require("twilio");
+
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
+
+const client = twilio(accountSid, authToken);
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -16,7 +23,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 1) Twilio hits this route first when a call comes in
+// Twilio hits this route first when a call comes in
 app.post("/voice", (req, res) => {
   const host = req.headers.host;
 
@@ -31,12 +38,51 @@ app.post("/voice", (req, res) => {
   res.send(twiml);
 });
 
-// 2) Simple health check route so you can test the app in browser
+// Outbound dial endpoint
+app.post("/dial", async (req, res) => {
+  try {
+    const phone = req.body.phone;
+
+    const call = await client.calls.create({
+      to: phone,
+      from: twilioNumber,
+      url: `https://${req.headers.host}/voice`,
+    });
+
+    res.json({
+      success: true,
+      callSid: call.sid,
+    });
+  } catch (error) {
+    console.error("Dial error:", error);
+    res.status(500).send("Dial failed");
+  }
+});
+
+// Simple health check route
 app.get("/", (req, res) => {
   res.send("AI dialer is running.");
 });
 
-// 3) Twilio opens a WebSocket here for the live conversation
+// Simple outbound test route
+app.get("/testdial", async (req, res) => {
+  try {
+    const phone = "+14077249767";
+
+    const call = await client.calls.create({
+      to: phone,
+      from: twilioNumber,
+      url: `https://${req.headers.host}/voice`,
+    });
+
+    res.send(`Dialing now... Call SID: ${call.sid}`);
+  } catch (error) {
+    console.error("Test dial error:", error);
+    res.status(500).send("Test dial failed");
+  }
+});
+
+// Twilio opens a WebSocket here for the live conversation
 wss.on("connection", (ws) => {
   console.log("Twilio connected to /conversationrelay");
 
@@ -45,48 +91,70 @@ wss.on("connection", (ws) => {
       const data = JSON.parse(message.toString());
       console.log("Incoming Twilio event:", data);
 
-      // ConversationRelay sends different event types.
-      // We only care about the user's spoken text for now.
+      // Greeting when session starts
+      if (data.type === "setup") {
+        ws.send(
+          JSON.stringify({
+            type: "text",
+            token:
+              "Hey, this is Jordan, a case worker here in Florida. I'm calling in regards to a mortgage life and disability protection file. It looks like it was opened back when you closed on your home. Does that sound familiar?",
+            last: true,
+          })
+        );
+        return;
+      }
+
+      // Handle caller speech
       if (data.type === "prompt" && data.voicePrompt) {
         const callerText = data.voicePrompt;
+        console.log("Caller said:", callerText);
 
         const aiResponse = await openai.responses.create({
           model: "gpt-4.1-mini",
           input: [
             {
               role: "system",
-              content:
-                "You are a friendly, concise mortgage protection appointment setter. Speak naturally, keep responses short, ask one question at a time, and try to help the caller book an appointment."
+              content: `
+You are a calm, professional mortgage protection assistant calling homeowners with a slightly concerned and conversational tone.
+
+Your job is to:
+- explain mortgage protection clearly
+- answer simple questions
+- qualify the homeowner
+- help them book a quick appointment with an underwriter
+
+Speak naturally like a real human on the phone.
+
+Rules:
+- keep responses under 2 sentences unless asked for details
+- ask one question at a time
+- never sound robotic or scripted
+- never mention AI or automation
+- stay friendly and conversational
+- speak slowly and use brief pauses between sentences
+
+Goal:
+Move the conversation toward scheduling an appointment.
+`,
             },
             {
               role: "user",
-              content: callerText
-            }
-          ]
+              content: callerText,
+            },
+          ],
         });
 
         const reply =
           aiResponse.output_text ||
           "Sorry, I did not catch that. Could you repeat it?";
 
-        // Send text back to Twilio so Twilio can speak it
+        console.log("AI reply:", reply);
+
         ws.send(
           JSON.stringify({
             type: "text",
             token: reply,
-            last: true
-          })
-        );
-      }
-
-      // Optional greeting when session starts
-      if (data.type === "setup") {
-        ws.send(
-          JSON.stringify({
-            type: "text",
-            token:
-              "Hello, this is the automated assistant for mortgage protection. How can I help you today?",
-            last: true
+            last: true,
           })
         );
       }
@@ -97,7 +165,7 @@ wss.on("connection", (ws) => {
         JSON.stringify({
           type: "text",
           token: "Sorry, something went wrong on my side.",
-          last: true
+          last: true,
         })
       );
     }
@@ -109,6 +177,7 @@ wss.on("connection", (ws) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
